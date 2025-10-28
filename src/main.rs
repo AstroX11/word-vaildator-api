@@ -1,27 +1,7 @@
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::fs;
-
-// Global dictionary loaded once at startup
-static DICTIONARY: Lazy<HashSet<String>> = Lazy::new(|| {
-    let content = fs::read_to_string("dictionary.txt")
-        .unwrap_or_else(|_| String::new());
-    
-    // Split by whitespace, strip symbols, keep only fully alphanumeric words
-    content
-        .split_whitespace()
-        .map(|word| {
-            // Strip non-alphanumeric characters and convert to lowercase
-            word.chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect::<String>()
-                .to_lowercase()
-        })
-        .filter(|word| !word.is_empty() && word.chars().all(|c| c.is_alphanumeric()))
-        .collect()
-});
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
 
 #[derive(Serialize)]
 struct ValidationResponse {
@@ -36,7 +16,9 @@ struct DatamuseResponse {
 }
 
 #[get("/word")]
-async fn validate_word(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+async fn validate_word(
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
     let word = match query.get("word") {
         Some(w) => w.to_lowercase(),
         None => {
@@ -46,16 +28,18 @@ async fn validate_word(query: web::Query<std::collections::HashMap<String, Strin
         }
     };
 
-    // Check local dictionary first
-    if DICTIONARY.contains(&word) {
-        return HttpResponse::Ok().json(ValidationResponse {
-            word: word.clone(),
-            found: true,
-            source: "local".to_string(),
-        });
+    // Check local dictionary file line-by-line
+    if let Ok(found) = word_in_dictionary(&word) {
+        if found {
+            return HttpResponse::Ok().json(ValidationResponse {
+                word: word.clone(),
+                found: true,
+                source: "local".to_string(),
+            });
+        }
     }
 
-    // If not found locally, query external APIs
+    // If not found locally, check external APIs
     if let Ok(found) = check_external_apis(&word).await {
         if found {
             return HttpResponse::Ok().json(ValidationResponse {
@@ -73,12 +57,31 @@ async fn validate_word(query: web::Query<std::collections::HashMap<String, Strin
     })
 }
 
+fn word_in_dictionary(word: &str) -> io::Result<bool> {
+    let file = File::open("dictionary.txt")?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            let clean = line
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            if clean == word {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 async fn check_external_apis(word: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
 
-    // 1. Check Free Dictionary API
+    // Free Dictionary API
     let free_dict_url = format!("https://api.dictionaryapi.dev/api/v2/entries/en/{}", word);
     if let Ok(response) = client.get(&free_dict_url).send().await {
         if response.status().is_success() {
@@ -86,18 +89,21 @@ async fn check_external_apis(word: &str) -> Result<bool, Box<dyn std::error::Err
         }
     }
 
-    // 2. Check Datamuse API
+    // Datamuse API
     let datamuse_url = format!("https://api.datamuse.com/words?sp={}&max=1", word);
     if let Ok(response) = client.get(&datamuse_url).send().await {
         if let Ok(data) = response.json::<Vec<DatamuseResponse>>().await {
-            if !data.is_empty() && data[0].word.to_lowercase() == word.to_lowercase() {
+            if !data.is_empty() && data[0].word.to_lowercase() == word {
                 return Ok(true);
             }
         }
     }
 
-    // 3. Check Words API (wordsapi.com - free tier available)
-    let words_api_url = format!("https://api.wordnik.com/v4/word.json/{}/definitions?api_key=test", word);
+    // Words API (Wordnik)
+    let words_api_url = format!(
+        "https://api.wordnik.com/v4/word.json/{}/definitions?api_key=test",
+        word
+    );
     if let Ok(response) = client.get(&words_api_url).send().await {
         if response.status().is_success() {
             return Ok(true);
@@ -111,24 +117,20 @@ async fn check_external_apis(word: &str) -> Result<bool, Box<dyn std::error::Err
 async fn index() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "service": "Word Validator API",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "usage": "/word?word=<word_to_validate>",
-        "dictionary_size": DICTIONARY.len()
+        "dictionary_load": "on-demand"
     }))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("📚 Word Validator API");
-    println!("📖 Loaded {} words from dictionary", DICTIONARY.len());
-    println!("🚀 Starting server on http://0.0.0.0:8080");
+    println!("📚 Word Validator API (streaming dictionary)");
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    println!("🚀 Starting server on http://0.0.0.0:{}", port);
 
-    HttpServer::new(|| {
-        App::new()
-            .service(index)
-            .service(validate_word)
-    })
-    .bind(("0.0.0.0", 8080))?
-    .run()
-    .await
+    HttpServer::new(|| App::new().service(index).service(validate_word))
+        .bind(("0.0.0.0", port.parse().unwrap()))?
+        .run()
+        .await
 }
