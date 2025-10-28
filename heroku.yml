@@ -1,1 +1,5 @@
-web: ./target/release/word_validator_api
+build:
+  docker:
+    worker: /Dockerfile
+run:
+  worker: cargo run --release

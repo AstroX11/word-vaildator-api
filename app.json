@@ -1,9 +1,5 @@
 {
     "name": "word-validator-api",
     "description": "Actix Web Rust API",
-    "buildpacks": [
-        {
-            "url": "https://github.com/emk/heroku-buildpack-rust"
-        }
-    ]
+    "stack": "container"
 }
