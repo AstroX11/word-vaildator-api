@@ -2,4 +2,4 @@ build:
   docker:
     web: /Dockerfile
 run:
-  web: cargo run --release
+  web: ./target/release/word_validator_api
