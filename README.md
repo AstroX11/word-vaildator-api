@@ -6,11 +6,11 @@ A fast, memory-efficient word validation API built in Rust. This API validates w
 
 - **Memory Efficient**: Binary size under 3.2MB (well below 25MB requirement)
 - **Fast Performance**: Uses HashSet for O(1) lookup time
-- **Local Dictionary**: Reads from `dictionary.txt` file, ignoring symbols and rubbish
+- **Local Dictionary**: Reads from `dictionary.txt` file, strips symbols, keeps only alphanumeric words
 - **External API Fallback**: Queries 3 free APIs when word is not found locally:
   - Free Dictionary API (dictionaryapi.dev)
   - Datamuse API
-  - Dictionary API (dictionaryapi.com)
+  - Wordnik API (with test key for demonstration)
 - **REST API**: Simple HTTP endpoint for word validation
 
 ## Prerequisites
@@ -115,16 +115,19 @@ curl "http://localhost:8080/word?word=invalidword123"
 
 The `dictionary.txt` file contains words separated by spaces. The API:
 - Splits text by whitespace
+- Strips all non-alphanumeric characters from each word
 - Converts all words to lowercase
-- Filters out entries with only symbols (keeping only alphanumeric words)
+- Filters out empty strings
 - Loads words into memory once at startup
 
 **Example dictionary.txt format:**
 ```
 hello world test example book books reading
-@#$%^ invalid!@# symbols###here
+@#$%^ invalid!@# symbols###here test123
 computer science programming rust
 ```
+
+Words with symbols like `test123` will be stripped to `test` and `symbols###here` becomes `symbolshere`.
 
 ## Configuration
 

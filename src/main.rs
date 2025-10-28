@@ -9,11 +9,17 @@ static DICTIONARY: Lazy<HashSet<String>> = Lazy::new(|| {
     let content = fs::read_to_string("dictionary.txt")
         .unwrap_or_else(|_| String::new());
     
-    // Split by whitespace and filter out symbols, keeping only alphanumeric words
+    // Split by whitespace, strip symbols, keep only fully alphanumeric words
     content
         .split_whitespace()
-        .map(|word| word.to_lowercase())
-        .filter(|word| word.chars().any(|c| c.is_alphanumeric()))
+        .map(|word| {
+            // Strip non-alphanumeric characters and convert to lowercase
+            word.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty() && word.chars().all(|c| c.is_alphanumeric()))
         .collect()
 });
 
@@ -90,9 +96,9 @@ async fn check_external_apis(word: &str) -> Result<bool, Box<dyn std::error::Err
         }
     }
 
-    // 3. Check Dictionary API (dictionaryapi.com)
-    let dict_api_url = format!("https://www.dictionaryapi.com/api/v3/references/collegiate/json/{}?key=test", word);
-    if let Ok(response) = client.get(&dict_api_url).send().await {
+    // 3. Check Words API (wordsapi.com - free tier available)
+    let words_api_url = format!("https://api.wordnik.com/v4/word.json/{}/definitions?api_key=test", word);
+    if let Ok(response) = client.get(&words_api_url).send().await {
         if response.status().is_success() {
             return Ok(true);
         }
